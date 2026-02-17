@@ -1,0 +1,45 @@
+# ==============================================================================
+# PopPK Project Configuration
+# ==============================================================================
+# Fill in project details. Referenced by aipharma R package and Claude Code skills.
+
+project:
+  name: "[PROJECT_NAME]"
+  compound: "[COMPOUND]"
+  indication: "[INDICATION]"
+  sponsor: "[SPONSOR]"
+  analyst: "[ANALYST_NAME]"
+  date_started: "[YYYY-MM-DD]"
+
+directories:
+  data_raw: "data/raw"
+  data_derived: "data/derived"
+  data_specs: "data/specs"
+  models: "models"
+  reports: "reports"
+  figures: "reports/figures"
+  scripts: "scripts/R"
+
+nonmem:
+  version: "7.5"
+  executable: "nmfe75"
+  estimation_method: "FOCE INTER"
+  run_prefix: "run"
+
+thresholds:
+  rse_fixed: 30        # RSE < 30% for fixed effects
+  rse_random: 50       # RSE < 50% for random effects
+  condition_number: 1000
+  shrinkage: 30         # Shrinkage < 30%
+  forward_addition: 3.84   # dOFV for forward addition (p < 0.05)
+  backward_elimination: 6.63  # dOFV for backward elimination (p < 0.01)
+
+quality_gates:
+  commit: 80
+  pr: 90
+  excellence: 95
+
+run_numbering:
+  base_structural: "1XX"
+  covariate: "2XX"
+  final: "3XX"
