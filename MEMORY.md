@@ -90,3 +90,29 @@ When a mistake is corrected, append a `[LEARN:category]` entry below.
 [LEARN:nonmem] RSE thresholds: < 30% for fixed effects, < 50% for random effects. Condition number < 1000. Shrinkage < 30% for meaningful individual estimates.
 
 [LEARN:nonmem] Exponential IIV (TVparam * EXP(ETA(n))) for CL, V, KA. Additive IIV (TVparam + ETA(n)) for lag times, fractions.
+
+## Plugin & MCP Integration
+
+[LEARN:plugins] Rules with `paths:` frontmatter are the lowest-friction way to integrate MCP plugins. They auto-trigger on file patterns — no manual plugin calls needed from the user.
+
+[LEARN:plugins] Context7 package tiers prevent unnecessary API calls: Tier 1 (core PMX: xpose, mrgsolve, rxode2, PKNCA) always check; Tier 3-5 (tidyverse, viz, pipeline) only for non-trivial usage.
+
+[LEARN:plugins] Mermaid Chart plugin renders diagrams via `validate_and_render_mermaid_diagram`. Always provide BOTH rendered image AND raw Mermaid code for Quarto embedding.
+
+## R/Quarto Analysis Patterns
+
+[LEARN:r-quarto] Pharmacometrics is broader than NONMEM modeling. NCA (PKNCA/pkr), exposure-response, PK simulations (rxode2/mrgsolve), EDA, and TFL generation all need dedicated R/Quarto support.
+
+[LEARN:r-quarto] Quarto report templates with `eval: false` chunks serve as scaffolding. Skills copy templates to `reports/`, fill in placeholders, then set `eval: true` on ready chunks. Users never run raw templates.
+
+[LEARN:r-quarto] MM color palette: mm_primary="#1B365D", mm_secondary="#4A90D9", mm_accent="#E8891C". Apply consistently via `theme_mm` and `scale_color_manual(values = mm_colors)`.
+
+[LEARN:r-quarto] TFL standards for submission: dpi=300, width=6.5 inches, gt/flextable for tables (not knitr::kable), no hardcoded values, 3 sig figs for PK parameters, 1 decimal for percentages.
+
+## Template Architecture
+
+[LEARN:architecture] Extend existing agents with new lenses/categories rather than creating new specialized agents. Avoids agent proliferation while adding domain coverage.
+
+[LEARN:architecture] 3-worker parallel execution works well for independent file creation tasks (rules, skills, templates). Team-lead handles dependent tasks (agent modifications) while workers run.
+
+[LEARN:architecture] protect-files.sh hook blocks the Edit tool on protected files (settings.json, Bibliography_base.bib, model_development_log.yaml). Workaround: use Bash with python3 to write these files.
