@@ -1,0 +1,365 @@
+---
+title: "Tables, Figures, and Listings: [COMPOUND_NAME]"
+author: "[ANALYST]"
+date: today
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show code"
+toc: true
+number-sections: true
+---
+
+# Setup
+
+```{r}
+#| label: setup
+#| eval: false
+
+library(tidyverse)
+library(gt)
+library(flextable)
+library(ggplot2)
+
+# Momentum Metrix color palette
+mm_primary <- "#1B365D"
+mm_secondary <- "#4A90D9"
+mm_accent <- "#E8891C"
+
+mm_colors <- c(mm_primary, mm_secondary, mm_accent, "#2E7D32", "#C62828", "#6A1B9A")
+
+theme_mm <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(color = mm_primary, face = "bold"),
+    axis.title = element_text(color = mm_primary),
+    legend.position = "bottom"
+  )
+theme_set(theme_mm)
+
+# Standard flextable formatting
+set_flextable_defaults(
+  font.family = "Arial",
+  font.size = 9,
+  padding = 3,
+  theme_fun = theme_booktabs
+)
+```
+
+# Data Loading
+
+```{r}
+#| label: load-data
+#| eval: false
+
+pk_data <- read_csv(here::here("[DATASET_PATH]"))
+
+glimpse(pk_data)
+
+# Key columns
+id_col    <- "[SUBJECT_ID]"
+time_col  <- "[TIME_COL]"
+conc_col  <- "[DV_COL]"
+dose_col  <- "[DOSE_COL]"
+group_col <- "[DOSE_GROUP_COL]"
+```
+
+# Tables
+
+## Table 1: Demographics Summary
+
+```{r}
+#| label: tbl-demographics
+#| eval: false
+
+demo_data <- pk_data |>
+  distinct(.data[[id_col]], .keep_all = TRUE)
+
+# Continuous covariates
+cont_vars <- c("[AGE_COL]", "[WEIGHT_COL]", "[HEIGHT_COL]", "[BMI_COL]", "[EGFR_COL]")
+
+cont_summary <- map_dfr(cont_vars, function(v) {
+  vals <- demo_data[[v]]
+  tibble(
+    Characteristic = v,
+    N = sum(!is.na(vals)),
+    `Mean (SD)` = paste0(round(mean(vals, na.rm = TRUE), 1),
+                         " (", round(sd(vals, na.rm = TRUE), 1), ")"),
+    `Median [Min, Max]` = paste0(round(median(vals, na.rm = TRUE), 1),
+                                 " [", round(min(vals, na.rm = TRUE), 1),
+                                 ", ", round(max(vals, na.rm = TRUE), 1), "]")
+  )
+})
+
+# Categorical covariates
+cat_vars <- c("[SEX_COL]", "[RACE_COL]", "[ETHNICITY_COL]")
+
+cat_summary <- map_dfr(cat_vars, function(v) {
+  tab <- table(demo_data[[v]], useNA = "ifany")
+  tibble(
+    Characteristic = paste0(v, ": ", names(tab)),
+    N = as.integer(tab),
+    `Mean (SD)` = paste0(round(100 * as.integer(tab) / nrow(demo_data), 1), "%"),
+    `Median [Min, Max]` = ""
+  )
+})
+
+demographics <- bind_rows(cont_summary, cat_summary)
+
+demographics |>
+  gt() |>
+  tab_header(
+    title = "Table 1: Summary of Demographic Characteristics",
+    subtitle = "[STUDY_ID] - [COMPOUND_NAME]"
+  ) |>
+  tab_options(
+    heading.background.color = mm_primary,
+    column_labels.background.color = mm_secondary
+  ) |>
+  tab_footnote("[FOOTNOTE_TEXT]")
+```
+
+## Table 2: PK Summary Statistics
+
+```{r}
+#| label: tbl-pk-summary
+#| eval: false
+
+pk_summary <- pk_data |>
+  filter(!is.na(.data[[conc_col]])) |>
+  group_by(.data[[group_col]], [VISIT_COL], [TIMEPOINT_COL]) |>
+  summarise(
+    N = n(),
+    `Mean (SD)` = paste0(
+      round(mean(.data[[conc_col]], na.rm = TRUE), 3), " (",
+      round(sd(.data[[conc_col]], na.rm = TRUE), 3), ")"
+    ),
+    `Median` = round(median(.data[[conc_col]], na.rm = TRUE), 3),
+    `Min` = round(min(.data[[conc_col]], na.rm = TRUE), 3),
+    `Max` = round(max(.data[[conc_col]], na.rm = TRUE), 3),
+    `%BLQ` = round(100 * sum(.data[[conc_col]] < [LLOQ_VALUE], na.rm = TRUE) / n(), 1),
+    .groups = "drop"
+  )
+
+pk_summary |>
+  gt(groupname_col = group_col) |>
+  tab_header(
+    title = "Table 2: PK Concentration Summary Statistics",
+    subtitle = "[COMPOUND_NAME] ([CONC_UNIT])"
+  ) |>
+  tab_options(
+    heading.background.color = mm_primary,
+    row_group.background.color = mm_secondary
+  )
+```
+
+## Table 3: Parameter Estimates
+
+```{r}
+#| label: tbl-parameters
+#| eval: false
+
+# Read from NONMEM output or xpose
+param_data <- tribble(
+  ~Parameter, ~Description, ~Estimate, ~RSE_pct, ~IIV_CV_pct, ~Shrinkage_pct,
+  "CL (L/h)",  "Clearance",             [CL_EST],  [CL_RSE],  [CL_IIV],  [CL_SHR],
+  "V2 (L)",    "Central volume",        [V2_EST],  [V2_RSE],  [V2_IIV],  [V2_SHR],
+  "Q (L/h)",   "Inter-comp. clearance", [Q_EST],   [Q_RSE],   [Q_IIV],   [Q_SHR],
+  "V3 (L)",    "Peripheral volume",     [V3_EST],  [V3_RSE],  [V3_IIV],  [V3_SHR],
+  "KA (1/h)",  "Absorption rate",       [KA_EST],  [KA_RSE],  [KA_IIV],  [KA_SHR],
+)
+
+param_data |>
+  gt() |>
+  tab_header(
+    title = "Table 3: Final Model Parameter Estimates",
+    subtitle = "Run [RUN_NUMBER]"
+  ) |>
+  fmt_number(columns = c(Estimate), decimals = 3) |>
+  fmt_number(columns = c(RSE_pct, IIV_CV_pct, Shrinkage_pct), decimals = 1) |>
+  cols_label(
+    RSE_pct = "RSE (%)",
+    IIV_CV_pct = "IIV (CV%)",
+    Shrinkage_pct = "Shrinkage (%)"
+  ) |>
+  tab_options(
+    heading.background.color = mm_primary,
+    column_labels.background.color = mm_secondary
+  )
+```
+
+## Table (flextable) for Word/PDF Output
+
+```{r}
+#| label: tbl-demographics-flex
+#| eval: false
+
+demo_flex <- demographics |>
+  flextable() |>
+  set_header_labels(
+    Characteristic = "Characteristic",
+    N = "N",
+    `Mean (SD)` = "Mean (SD)",
+    `Median [Min, Max]` = "Median [Min, Max]"
+  ) |>
+  bold(part = "header") |>
+  bg(part = "header", bg = mm_primary) |>
+  color(part = "header", color = "white") |>
+  autofit() |>
+  set_caption("Table 1: Summary of Demographic Characteristics")
+
+demo_flex
+```
+
+# Figures
+
+## Figure 1: Concentration-Time Profile
+
+```{r}
+#| label: fig-conc-time
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(pk_data |> filter(!is.na(.data[[conc_col]])),
+       aes(x = .data[[time_col]], y = .data[[conc_col]],
+           group = .data[[id_col]], color = factor(.data[[group_col]]))) +
+  geom_line(alpha = 0.3) +
+  geom_point(size = 0.8, alpha = 0.5) +
+  stat_summary(aes(group = factor(.data[[group_col]])),
+               fun = median, geom = "line", linewidth = 1.2) +
+  scale_color_manual(values = mm_colors) +
+  labs(
+    x = "Time ([TIME_UNIT])",
+    y = "Concentration ([CONC_UNIT])",
+    color = "Dose Group",
+    title = "Figure 1: Individual Concentration-Time Profiles"
+  )
+
+ggsave(here::here("Figures/tfl_fig01_conc_time.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Figure 2: Concentration-Time Profile (Semi-Log)
+
+```{r}
+#| label: fig-conc-time-semilog
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(pk_data |> filter(.data[[conc_col]] > 0),
+       aes(x = .data[[time_col]], y = .data[[conc_col]],
+           group = .data[[id_col]], color = factor(.data[[group_col]]))) +
+  geom_line(alpha = 0.3) +
+  geom_point(size = 0.8, alpha = 0.5) +
+  stat_summary(aes(group = factor(.data[[group_col]])),
+               fun = median, geom = "line", linewidth = 1.2) +
+  scale_y_log10() +
+  scale_color_manual(values = mm_colors) +
+  labs(
+    x = "Time ([TIME_UNIT])",
+    y = "Concentration ([CONC_UNIT])",
+    color = "Dose Group",
+    title = "Figure 2: Concentration-Time Profiles (Semi-Log Scale)"
+  )
+
+ggsave(here::here("Figures/tfl_fig02_conc_time_semilog.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Figure 3: Forest Plot
+
+```{r}
+#| label: fig-forest
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 6
+
+# Covariate effects on CL (from NONMEM covariate model)
+forest_data <- tribble(
+  ~covariate, ~level, ~effect, ~ci_lower, ~ci_upper,
+  "[COV_1]", "[LEVEL_1a]", [EFFECT_1a], [CI_L_1a], [CI_U_1a],
+  "[COV_1]", "[LEVEL_1b]", [EFFECT_1b], [CI_L_1b], [CI_U_1b],
+  "[COV_2]", "[LEVEL_2a]", [EFFECT_2a], [CI_L_2a], [CI_U_2a],
+  "[COV_2]", "[LEVEL_2b]", [EFFECT_2b], [CI_L_2b], [CI_U_2b],
+)
+
+forest_data <- forest_data |>
+  mutate(label = paste0(covariate, ": ", level))
+
+ggplot(forest_data, aes(x = effect, y = reorder(label, effect))) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey50") +
+  geom_rect(aes(xmin = 0.8, xmax = 1.25, ymin = -Inf, ymax = Inf),
+            fill = "grey90", alpha = 0.3) +
+  geom_point(size = 3, color = mm_primary) +
+  geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper),
+                 height = 0.2, color = mm_secondary) +
+  labs(
+    x = "Relative Change in CL",
+    y = "",
+    title = "Figure 3: Forest Plot of Covariate Effects on CL"
+  )
+
+ggsave(here::here("Figures/tfl_fig03_forest_plot.png"),
+       width = 6.5, height = 6, dpi = 300)
+```
+
+# Listings
+
+## Listing 1: Data Listing
+
+```{r}
+#| label: listing-data
+#| eval: false
+
+# Full data listing (subset of columns for display)
+listing_cols <- c(id_col, "[STUDY_COL]", "[VISIT_COL]", time_col, dose_col, conc_col,
+                  "[AGE_COL]", "[WEIGHT_COL]", "[SEX_COL]")
+
+pk_data |>
+  select(all_of(listing_cols)) |>
+  arrange(.data[[id_col]], .data[[time_col]]) |>
+  head(100) |>
+  gt() |>
+  tab_header(
+    title = "Listing 1: PK Data Listing (First 100 Records)",
+    subtitle = "[STUDY_ID]"
+  ) |>
+  tab_options(
+    heading.background.color = mm_primary,
+    table.font.size = px(9)
+  )
+```
+
+## Listing 2: Excluded Subjects
+
+```{r}
+#| label: listing-exclusions
+#| eval: false
+
+exclusions <- tribble(
+  ~Subject, ~Reason, ~N_Records_Excluded,
+  "[SUBJ_1]", "[REASON_1]", [N_EXCL_1],
+  "[SUBJ_2]", "[REASON_2]", [N_EXCL_2],
+)
+
+exclusions |>
+  gt() |>
+  tab_header(
+    title = "Listing 2: Subject Exclusions",
+    subtitle = "[STUDY_ID]"
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Conclusions
+
+**TFL Package Summary:**
+
+- **Tables:** [N_TABLES] tables generated
+- **Figures:** [N_FIGURES] figures generated
+- **Listings:** [N_LISTINGS] listings generated
+
+All figures saved at 300 DPI, 6.5 inches wide, in `Figures/` directory.
+All tables available in gt (HTML) and flextable (Word/PDF) formats.

@@ -1,0 +1,390 @@
+---
+title: "Exposure-Response Analysis Report: [COMPOUND_NAME]"
+author: "[ANALYST]"
+date: today
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show code"
+toc: true
+number-sections: true
+---
+
+# Setup
+
+```{r}
+#| label: setup
+#| eval: false
+
+library(tidyverse)
+library(ggplot2)
+library(gt)
+library(survival)
+library(broom)
+
+# Momentum Metrix color palette
+mm_primary <- "#1B365D"
+mm_secondary <- "#4A90D9"
+mm_accent <- "#E8891C"
+
+mm_colors <- c(mm_primary, mm_secondary, mm_accent, "#2E7D32", "#C62828", "#6A1B9A")
+
+theme_mm <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(color = mm_primary, face = "bold"),
+    axis.title = element_text(color = mm_primary),
+    legend.position = "bottom"
+  )
+theme_set(theme_mm)
+```
+
+# Data Loading
+
+```{r}
+#| label: load-data
+#| eval: false
+
+er_data <- read_csv(here::here("[DATASET_PATH]"))
+
+glimpse(er_data)
+
+# Key column mapping
+id_col       <- "[SUBJECT_ID]"
+exposure_col <- "[EXPOSURE_COL]"     # e.g., AUCss, Cavg, Cmax, Ctrough
+efficacy_col <- "[EFFICACY_COL]"     # e.g., response, tumor_size, score
+safety_col   <- "[SAFETY_COL]"       # e.g., ae_flag, grade3_ae, toxicity
+dose_col     <- "[DOSE_COL]"
+time_col     <- "[TIME_COL]"         # for TTE endpoints
+
+# Exposure metric derivation documentation
+# [DESCRIBE_HOW_EXPOSURE_METRICS_WERE_DERIVED]
+# e.g., AUCss derived from PopPK model (Run [RUN_NUMBER]) individual predictions
+```
+
+# Exploratory E-R Plots
+
+## Efficacy Endpoint
+
+```{r}
+#| label: fig-er-efficacy-scatter
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(er_data, aes(x = .data[[exposure_col]], y = .data[[efficacy_col]])) +
+  geom_point(color = mm_secondary, alpha = 0.6) +
+  geom_smooth(method = "loess", color = mm_accent, se = TRUE) +
+  labs(
+    x = "[EXPOSURE_LABEL] ([EXPOSURE_UNIT])",
+    y = "[EFFICACY_LABEL]",
+    title = "Exposure vs Efficacy"
+  )
+
+ggsave(here::here("Figures/er_efficacy_scatter.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Efficacy by Exposure Quartile
+
+```{r}
+#| label: fig-er-efficacy-quartile
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+er_data <- er_data |>
+  mutate(exposure_q = cut(.data[[exposure_col]],
+                          breaks = quantile(.data[[exposure_col]], probs = 0:4/4, na.rm = TRUE),
+                          include.lowest = TRUE,
+                          labels = c("Q1", "Q2", "Q3", "Q4")))
+
+ggplot(er_data, aes(x = exposure_q, y = .data[[efficacy_col]], fill = exposure_q)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = 21) +
+  scale_fill_manual(values = mm_colors[1:4]) +
+  labs(
+    x = paste0(exposure_col, " Quartile"),
+    y = "[EFFICACY_LABEL]",
+    title = "Efficacy by Exposure Quartile"
+  ) +
+  guides(fill = "none")
+
+ggsave(here::here("Figures/er_efficacy_quartile.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Safety Endpoint
+
+```{r}
+#| label: fig-er-safety-scatter
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(er_data, aes(x = .data[[exposure_col]], y = .data[[safety_col]])) +
+  geom_point(color = mm_primary, alpha = 0.6) +
+  geom_smooth(method = "loess", color = "#C62828", se = TRUE) +
+  labs(
+    x = "[EXPOSURE_LABEL] ([EXPOSURE_UNIT])",
+    y = "[SAFETY_LABEL]",
+    title = "Exposure vs Safety"
+  )
+
+ggsave(here::here("Figures/er_safety_scatter.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+# Model Fitting
+
+## Logistic Regression (Binary Endpoint)
+
+```{r}
+#| label: logistic-model
+#| eval: false
+
+# Efficacy logistic regression
+eff_model <- glm(
+  [BINARY_EFFICACY_COL] ~ .data[[exposure_col]] + [COVARIATE_1] + [COVARIATE_2],
+  data = er_data,
+  family = binomial(link = "logit")
+)
+
+eff_summary <- tidy(eff_model, conf.int = TRUE, exponentiate = TRUE)
+
+eff_summary |>
+  gt() |>
+  tab_header(
+    title = "Logistic Regression: Efficacy",
+    subtitle = "Odds Ratios with 95% CI"
+  ) |>
+  fmt_number(columns = c(estimate, conf.low, conf.high), decimals = 3) |>
+  fmt_number(columns = p.value, decimals = 4) |>
+  cols_label(
+    term = "Term",
+    estimate = "OR",
+    conf.low = "95% CI Lower",
+    conf.high = "95% CI Upper",
+    p.value = "p-value"
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+```{r}
+#| label: safety-logistic
+#| eval: false
+
+# Safety logistic regression
+safety_model <- glm(
+  [BINARY_SAFETY_COL] ~ .data[[exposure_col]] + [COVARIATE_1] + [COVARIATE_2],
+  data = er_data,
+  family = binomial(link = "logit")
+)
+
+safety_summary <- tidy(safety_model, conf.int = TRUE, exponentiate = TRUE)
+
+safety_summary |>
+  gt() |>
+  tab_header(
+    title = "Logistic Regression: Safety",
+    subtitle = "Odds Ratios with 95% CI"
+  ) |>
+  fmt_number(columns = c(estimate, conf.low, conf.high), decimals = 3) |>
+  fmt_number(columns = p.value, decimals = 4) |>
+  cols_label(
+    term = "Term",
+    estimate = "OR",
+    conf.low = "95% CI Lower",
+    conf.high = "95% CI Upper",
+    p.value = "p-value"
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+## Cox Proportional Hazards (Time-to-Event Endpoint)
+
+```{r}
+#| label: cox-model
+#| eval: false
+
+# Time-to-event analysis (if applicable)
+surv_obj <- Surv(time = er_data[[time_col]], event = er_data[["[EVENT_COL]"]])
+
+cox_model <- coxph(
+  surv_obj ~ .data[[exposure_col]] + [COVARIATE_1] + [COVARIATE_2],
+  data = er_data
+)
+
+cox_summary <- tidy(cox_model, conf.int = TRUE, exponentiate = TRUE)
+
+cox_summary |>
+  gt() |>
+  tab_header(
+    title = "Cox Proportional Hazards Model",
+    subtitle = "Hazard Ratios with 95% CI"
+  ) |>
+  fmt_number(columns = c(estimate, conf.low, conf.high), decimals = 3) |>
+  fmt_number(columns = p.value, decimals = 4) |>
+  cols_label(
+    term = "Term",
+    estimate = "HR",
+    conf.low = "95% CI Lower",
+    conf.high = "95% CI Upper",
+    p.value = "p-value"
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Forest Plot
+
+```{r}
+#| label: fig-forest-plot
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 6
+
+# Subgroup analysis for forest plot
+subgroups <- c("[SUBGROUP_1]", "[SUBGROUP_2]", "[SUBGROUP_3]")
+
+forest_data <- map_dfr(subgroups, function(sg) {
+  sg_levels <- unique(er_data[[sg]])
+  map_dfr(sg_levels, function(lv) {
+    sub_dat <- er_data |> filter(.data[[sg]] == lv)
+    if (nrow(sub_dat) < 10) return(NULL)
+    mod <- glm(
+      as.formula(paste("[BINARY_EFFICACY_COL] ~", exposure_col)),
+      data = sub_dat,
+      family = binomial()
+    )
+    td <- tidy(mod, conf.int = TRUE, exponentiate = TRUE)
+    td |>
+      filter(term == exposure_col) |>
+      mutate(subgroup = sg, level = as.character(lv))
+  })
+})
+
+forest_data <- forest_data |>
+  mutate(label = paste0(subgroup, ": ", level))
+
+ggplot(forest_data, aes(x = estimate, y = reorder(label, estimate))) +
+  geom_point(size = 3, color = mm_primary) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                 height = 0.2, color = mm_secondary) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey50") +
+  labs(
+    x = "Odds Ratio (95% CI)",
+    y = "",
+    title = "Forest Plot: Subgroup Exposure-Response Analysis"
+  )
+
+ggsave(here::here("Figures/er_forest_plot.png"),
+       width = 6.5, height = 6, dpi = 300)
+```
+
+# Dose-Response Curves
+
+```{r}
+#| label: fig-dose-response
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+# Predicted probability across exposure range
+exposure_range <- seq(
+  min(er_data[[exposure_col]], na.rm = TRUE),
+  max(er_data[[exposure_col]], na.rm = TRUE),
+  length.out = 200
+)
+
+pred_data <- data.frame(x = exposure_range)
+names(pred_data) <- exposure_col
+
+# Add covariate medians for prediction
+# [ADD_MEDIAN_COVARIATE_VALUES]
+
+pred_data$predicted <- predict(eff_model, newdata = pred_data, type = "response")
+
+# Confidence intervals via bootstrap or predict with se.fit
+pred_se <- predict(eff_model, newdata = pred_data, type = "link", se.fit = TRUE)
+pred_data$ci_lower <- plogis(pred_se$fit - 1.96 * pred_se$se.fit)
+pred_data$ci_upper <- plogis(pred_se$fit + 1.96 * pred_se$se.fit)
+
+ggplot(pred_data, aes(x = .data[[exposure_col]])) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper),
+              fill = mm_secondary, alpha = 0.2) +
+  geom_line(aes(y = predicted), color = mm_primary, linewidth = 1.2) +
+  geom_rug(data = er_data, aes(x = .data[[exposure_col]]),
+           sides = "b", alpha = 0.3) +
+  labs(
+    x = "[EXPOSURE_LABEL] ([EXPOSURE_UNIT])",
+    y = "Predicted Probability of [ENDPOINT]",
+    title = "Exposure-Response Curve with 95% CI"
+  ) +
+  scale_y_continuous(labels = scales::percent)
+
+ggsave(here::here("Figures/er_dose_response_curve.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Dose-Response by Dose Level
+
+```{r}
+#| label: fig-dose-response-overlay
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+# Overlay observed response rates by dose
+dose_response <- er_data |>
+  group_by(.data[[dose_col]]) |>
+  summarise(
+    n = n(),
+    n_responders = sum(.data[["[BINARY_EFFICACY_COL]"]], na.rm = TRUE),
+    response_rate = n_responders / n,
+    mean_exposure = mean(.data[[exposure_col]], na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot() +
+  geom_ribbon(data = pred_data,
+              aes(x = .data[[exposure_col]], ymin = ci_lower, ymax = ci_upper),
+              fill = mm_secondary, alpha = 0.2) +
+  geom_line(data = pred_data,
+            aes(x = .data[[exposure_col]], y = predicted),
+            color = mm_primary, linewidth = 1.2) +
+  geom_point(data = dose_response,
+             aes(x = mean_exposure, y = response_rate, size = n),
+             color = mm_accent) +
+  geom_text(data = dose_response,
+            aes(x = mean_exposure, y = response_rate,
+                label = paste0(.data[[dose_col]], " mg")),
+            vjust = -1, size = 3) +
+  labs(
+    x = "[EXPOSURE_LABEL] ([EXPOSURE_UNIT])",
+    y = "Response Rate",
+    size = "N",
+    title = "Dose-Response Overlay"
+  ) +
+  scale_y_continuous(labels = scales::percent)
+
+ggsave(here::here("Figures/er_dose_response_overlay.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+# Conclusions
+
+**Analysis Summary:**
+
+- **Exposure Metric:** [EXPOSURE_METRIC_DESCRIPTION]
+- **Efficacy Endpoint:** [EFFICACY_ENDPOINT_DESCRIPTION]
+- **Safety Endpoint:** [SAFETY_ENDPOINT_DESCRIPTION]
+
+**Key Findings:**
+
+- [FINDING_1]
+- [FINDING_2]
+- [FINDING_3]
+
+**Clinical Implications:**
+
+- [IMPLICATION_1]
+- [IMPLICATION_2]

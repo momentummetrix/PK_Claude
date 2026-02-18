@@ -69,6 +69,47 @@ Produce a thorough, actionable code review report. You do NOT edit files — you
 
 **Flag:** Hardcoded NONMEM values, wrong GOF plot type, missing convergence check, manual parameter entry.
 
+### 5b. NCA ANALYSIS PATTERNS (PKNCA/pkr)
+- [ ] Correct workflow: `PKNCAconc` → `PKNCAdata` → `pk.nca`
+- [ ] Proper interval definitions matching dosing regimen
+- [ ] BLQ handling explicitly documented and implemented
+- [ ] Linear-up/log-down trapezoidal method (default for PK)
+- [ ] Lambda_z selection: adequate number of points, r-squared reported
+- [ ] Results extracted programmatically from pk.nca output, not hardcoded
+
+**Flag:** Manual trapezoidal calculation, missing BLQ documentation, hardcoded NCA parameters.
+
+### 5c. SIMULATION PATTERNS (mrgsolve/rxode2)
+- [ ] `set.seed()` at top of script (not inside simulation loop)
+- [ ] Model structure matches source (NONMEM .mod or published model)
+- [ ] Event table construction uses named columns (time, amt, evid, cmt)
+- [ ] Parameter vectors are named (not positional)
+- [ ] Population variability: omega matrix matches source model
+- [ ] Prediction intervals correctly computed (not SD of means)
+- [ ] Parameter uncertainty propagated when bootstrap available
+
+**Flag:** Missing set.seed, positional parameters, wrong PI calculation, no uncertainty propagation.
+
+### 5d. EXPOSURE-RESPONSE PATTERNS
+- [ ] Exposure metric derivation documented (AUC, Cmax, Ctrough source)
+- [ ] Graphical E-R assessment performed before formal modeling
+- [ ] Appropriate model for endpoint type (logistic for binary, Cox for TTE)
+- [ ] Confounder adjustment included or justified as unnecessary
+- [ ] Confidence intervals on all model predictions
+- [ ] Clinical relevance discussed (not just statistical significance)
+
+**Flag:** No graphical assessment, wrong model type for endpoint, missing CIs.
+
+### 5e. TFL STANDARDS
+- [ ] Tables use `gt` or `flextable` (not `knitr::kable` for final output)
+- [ ] Figure width = 6.5 inches for submission, dpi = 300
+- [ ] Table/figure numbers and titles present
+- [ ] Numeric formatting: 3 sig figs for PK, 1 decimal for percentages
+- [ ] All values derived from R objects (no manual entry)
+- [ ] MM color palette applied consistently
+
+**Flag:** Hardcoded table values, missing titles, wrong dimensions, default ggplot2 colors.
+
 ### 6. FIGURE QUALITY
 - [ ] Consistent color palette (check your project's standard colors)
 - [ ] Custom theme applied to all plots

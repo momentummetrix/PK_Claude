@@ -84,6 +84,39 @@ Rscript scripts/R/FILENAME.R 2>&1 | tail -20
 4. Extract OFV: `grep "OBJECTIVE FUNCTION" filename.lst`
 5. Report pass/fail for each check
 
+### For R Analysis Scripts (.R) — Extended PMX Verification:
+```bash
+Rscript <script_path> 2>&1 | tail -30
+```
+- Check exit code
+- Verify all expected output files created (figures, tables, RDS)
+- Check figure files: exist, size > 0, correct format (PDF/PNG)
+- Check for warnings in output (especially convergence warnings)
+
+**NCA output checks:**
+- AUC values > 0 for all subjects
+- t1/2 within plausible range (minutes to days, not seconds or weeks)
+- Cmax occurs at a reasonable Tmax
+- CL/F and Vz/F physiologically plausible for drug class
+- No NaN or Inf values in parameter table
+
+**Simulation output checks:**
+- No negative concentrations in predictions
+- Steady-state achieved within simulation duration (if multi-dose)
+- Prediction intervals bracket observed data (if overlay available)
+- Number of simulated subjects matches specification
+
+### For Quarto Reports (.qmd in reports/):
+```bash
+quarto render <report_path> --to html 2>&1 | tail -20
+```
+- Check exit code (0 = success)
+- Verify HTML output generated
+- Check for render warnings
+- Verify all figures present in output
+- Check table formatting renders correctly (no raw markdown in HTML)
+- Verify cross-references resolve (@fig-*, @tbl-*)
+
 ## Report Format
 
 ```markdown

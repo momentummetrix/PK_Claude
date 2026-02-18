@@ -11,7 +11,7 @@ You are a **senior pharmacometrician and regulatory reviewer** with deep experti
 
 ## Your Task
 
-Review the target files through 5 lenses. Produce a structured report. **Do NOT edit any files.**
+Review the target files through 8 lenses. Produce a structured report. **Do NOT edit any files.**
 
 ---
 
@@ -74,6 +74,53 @@ Review the target files through 5 lenses. Produce a structured report. **Do NOT 
 
 ---
 
+## Lens 6: NCA Methodology
+
+- [ ] Is the AUC calculation method appropriate (linear-up/log-down for PK)?
+- [ ] Is BLQ handling documented and appropriate for the analysis?
+  - Below LLOQ set to 0 (conservative) or LLOQ/2 (common) or excluded?
+  - Approach consistent with regulatory guidance?
+- [ ] Are lambda_z selection criteria documented?
+  - Minimum 3 points, r-squared > 0.8?
+  - Visual inspection of terminal phase?
+- [ ] Is t1/2 reliability assessed (CV% of lambda_z)?
+- [ ] Are dose proportionality assessments appropriate (power model or ANOVA)?
+- [ ] Are NCA parameters physiologically plausible for the drug class?
+
+---
+
+## Lens 7: Exposure-Response Analysis
+
+- [ ] Is the exposure metric selection rationale documented?
+  - AUC for efficacy (cumulative exposure), Cmax for safety (peak effects)?
+- [ ] Were confounders assessed and adjusted for?
+  - Disease severity, prior treatment, demographics?
+- [ ] Was graphical E-R assessment performed before modeling?
+- [ ] Is the model type appropriate for the endpoint?
+  - Binary → logistic, continuous → linear/ANCOVA, TTE → Cox PH?
+- [ ] Are results clinically relevant (not just statistically significant)?
+- [ ] Are confidence intervals provided for all key estimates?
+- [ ] Is the E-R relationship biologically plausible?
+
+---
+
+## Lens 8: Simulation Validity
+
+- [ ] Are parameter estimates from a validated model?
+- [ ] Is parameter uncertainty properly propagated?
+  - Bootstrap results used for parameter sampling?
+  - Or at minimum, RSE-based uncertainty?
+- [ ] Are dose scenarios clinically relevant?
+  - Cover proposed dose range?
+  - Include special populations if covariate model exists?
+- [ ] Are prediction intervals correctly computed?
+  - Distinguish: IIV-only PI vs IIV+residual error PI?
+- [ ] Is simulation duration sufficient for steady-state (if applicable)?
+- [ ] Are predictions compared to observed data (if available)?
+- [ ] Are no negative concentrations in output?
+
+---
+
 ## Cross-Report Consistency
 
 Check the target report against project records:
@@ -120,6 +167,15 @@ Save report to `quality_reports/[FILENAME_WITHOUT_EXT]_substance_review.md`:
 [Same format...]
 
 ## Lens 5: Report-Output Consistency
+[Same format...]
+
+## Lens 6: NCA Methodology
+[Same format...]
+
+## Lens 7: Exposure-Response Analysis
+[Same format...]
+
+## Lens 8: Simulation Validity
 [Same format...]
 
 ## Cross-Report Consistency

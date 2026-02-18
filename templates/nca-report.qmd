@@ -1,0 +1,344 @@
+---
+title: "Non-Compartmental Analysis Report: [COMPOUND_NAME]"
+author: "[ANALYST]"
+date: today
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show code"
+toc: true
+number-sections: true
+---
+
+# Setup
+
+```{r}
+#| label: setup
+#| eval: false
+
+library(PKNCA)
+library(pkr)
+library(tidyverse)
+library(gt)
+library(ggplot2)
+
+# Momentum Metrix color palette
+mm_primary <- "#1B365D"
+mm_secondary <- "#4A90D9"
+mm_accent <- "#E8891C"
+
+mm_colors <- c(mm_primary, mm_secondary, mm_accent, "#2E7D32", "#C62828", "#6A1B9A")
+
+theme_mm <- theme_minimal(base_size = 12) +
+
+theme(
+    plot.title = element_text(color = mm_primary, face = "bold"),
+    axis.title = element_text(color = mm_primary),
+    legend.position = "bottom"
+  )
+theme_set(theme_mm)
+```
+
+# Data Loading
+
+```{r}
+#| label: load-data
+#| eval: false
+
+pk_data <- read_csv(here::here("[DATASET_PATH]"))
+
+# Inspect structure
+glimpse(pk_data)
+
+# Key column mapping
+id_col    <- "[SUBJECT_ID]"
+time_col  <- "[TIME_COL]"
+conc_col  <- "[DV_COL]"
+dose_col  <- "[DOSE_COL]"
+group_col <- "[DOSE_GROUP_COL]"
+
+# Filter to PK observations
+pk_obs <- pk_data |>
+  filter(!is.na(.data[[conc_col]]))
+```
+
+## BLQ Summary
+
+```{r}
+#| label: blq-summary
+#| eval: false
+
+lloq <- [LLOQ_VALUE]
+
+blq_summary <- pk_data |>
+  mutate(blq_flag = .data[[conc_col]] < lloq) |>
+  group_by(.data[[group_col]]) |>
+  summarise(
+    n_total = n(),
+    n_blq = sum(blq_flag, na.rm = TRUE),
+    pct_blq = round(100 * n_blq / n_total, 1),
+    .groups = "drop"
+  )
+
+blq_summary |>
+  gt() |>
+  tab_header(title = "BLQ Summary by Dose Group") |>
+  cols_label(
+    n_total = "Total Samples",
+    n_blq = "N BLQ",
+    pct_blq = "% BLQ"
+  ) |>
+  tab_options(
+    heading.background.color = mm_primary
+  )
+```
+
+# Concentration-Time Profiles
+
+## Linear Scale
+
+```{r}
+#| label: fig-conc-linear
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(pk_obs, aes(x = .data[[time_col]], y = .data[[conc_col]],
+                   group = .data[[id_col]], color = factor(.data[[group_col]]))) +
+  geom_line(alpha = 0.4) +
+  geom_point(size = 1, alpha = 0.6) +
+  stat_summary(aes(group = factor(.data[[group_col]])),
+               fun = median, geom = "line", linewidth = 1.2) +
+  scale_color_manual(values = mm_colors) +
+  labs(
+    x = "Time ([TIME_UNIT])",
+    y = "Concentration ([CONC_UNIT])",
+    color = "Dose Group",
+    title = "Individual Concentration-Time Profiles (Linear Scale)"
+  )
+
+ggsave(here::here("Figures/nca_conc_time_linear.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Semi-Logarithmic Scale
+
+```{r}
+#| label: fig-conc-semilog
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(pk_obs |> filter(.data[[conc_col]] > 0),
+       aes(x = .data[[time_col]], y = .data[[conc_col]],
+           group = .data[[id_col]], color = factor(.data[[group_col]]))) +
+  geom_line(alpha = 0.4) +
+  geom_point(size = 1, alpha = 0.6) +
+  stat_summary(aes(group = factor(.data[[group_col]])),
+               fun = median, geom = "line", linewidth = 1.2) +
+  scale_y_log10() +
+  scale_color_manual(values = mm_colors) +
+  labs(
+    x = "Time ([TIME_UNIT])",
+    y = "Concentration ([CONC_UNIT])",
+    color = "Dose Group",
+    title = "Individual Concentration-Time Profiles (Semi-Log Scale)"
+  )
+
+ggsave(here::here("Figures/nca_conc_time_semilog.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+# NCA Computation
+
+```{r}
+#| label: nca-computation
+#| eval: false
+
+# Define concentration and dose objects
+conc_obj <- PKNCAconc(
+  data = pk_obs,
+  formula = as.formula(paste(conc_col, "~", time_col, "|", id_col)),
+  subject = id_col
+)
+
+dose_obj <- PKNCAdose(
+  data = pk_data |> filter(.data[[dose_col]] > 0) |> distinct(.data[[id_col]], .keep_all = TRUE),
+  formula = as.formula(paste(dose_col, "~", time_col, "|", id_col)),
+  subject = id_col
+)
+
+# Define intervals for NCA parameters
+intervals <- data.frame(
+  start = 0,
+  end = [TAU_OR_TLAST],
+  auclast = TRUE,
+  aucinf.obs = TRUE,
+  cmax = TRUE,
+  tmax = TRUE,
+  half.life = TRUE,
+  cl.obs = TRUE,
+  vz.obs = TRUE
+)
+
+# Create PKNCAdata object and compute NCA
+nca_data <- PKNCAdata(conc_obj, dose_obj, intervals = intervals)
+nca_results <- pk.nca(nca_data)
+
+# Extract results
+nca_params <- as.data.frame(nca_results)
+```
+
+# Parameter Summary Table
+
+```{r}
+#| label: tbl-nca-summary
+#| eval: false
+
+nca_summary <- nca_params |>
+  group_by(PPTESTCD) |>
+  summarise(
+    N = n(),
+    Mean = mean(PPORRES, na.rm = TRUE),
+    SD = sd(PPORRES, na.rm = TRUE),
+    Median = median(PPORRES, na.rm = TRUE),
+    Min = min(PPORRES, na.rm = TRUE),
+    Max = max(PPORRES, na.rm = TRUE),
+    CV_pct = 100 * SD / Mean,
+    .groups = "drop"
+  )
+
+nca_summary |>
+  gt() |>
+  tab_header(
+    title = "NCA Parameter Summary",
+    subtitle = "[COMPOUND_NAME] - [STUDY_ID]"
+  ) |>
+  fmt_number(columns = c(Mean, SD, Median, Min, Max), decimals = 3) |>
+  fmt_number(columns = CV_pct, decimals = 1) |>
+  cols_label(
+    PPTESTCD = "Parameter",
+    CV_pct = "CV%"
+  ) |>
+  tab_options(
+    heading.background.color = mm_primary
+  )
+```
+
+## NCA Parameters by Dose Group
+
+```{r}
+#| label: tbl-nca-by-dose
+#| eval: false
+
+# Merge dose group information
+nca_by_dose <- nca_params |>
+  left_join(
+    pk_data |> distinct(.data[[id_col]], .data[[group_col]]),
+    by = setNames(id_col, "USUBJID")
+  ) |>
+  group_by(.data[[group_col]], PPTESTCD) |>
+  summarise(
+    N = n(),
+    `Mean (SD)` = paste0(
+      round(mean(PPORRES, na.rm = TRUE), 3), " (",
+      round(sd(PPORRES, na.rm = TRUE), 3), ")"
+    ),
+    `Median [Min, Max]` = paste0(
+      round(median(PPORRES, na.rm = TRUE), 3), " [",
+      round(min(PPORRES, na.rm = TRUE), 3), ", ",
+      round(max(PPORRES, na.rm = TRUE), 3), "]"
+    ),
+    .groups = "drop"
+  )
+
+nca_by_dose |>
+  gt(groupname_col = group_col) |>
+  tab_header(title = "NCA Parameters by Dose Group") |>
+  tab_options(
+    heading.background.color = mm_primary,
+    row_group.background.color = mm_secondary
+  )
+```
+
+# Dose Proportionality
+
+```{r}
+#| label: fig-dose-proportionality
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+# Dose proportionality for AUC and Cmax
+dp_data <- nca_params |>
+  filter(PPTESTCD %in% c("auclast", "cmax")) |>
+  left_join(
+    pk_data |> distinct(.data[[id_col]], .data[[dose_col]]),
+    by = setNames(id_col, "USUBJID")
+  )
+
+ggplot(dp_data, aes(x = .data[[dose_col]], y = PPORRES)) +
+  geom_point(color = mm_secondary, alpha = 0.7) +
+  geom_smooth(method = "lm", color = mm_accent, se = TRUE) +
+  facet_wrap(~ PPTESTCD, scales = "free_y") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(
+    x = "Dose ([DOSE_UNIT])",
+    y = "Parameter Value",
+    title = "Dose Proportionality Assessment"
+  )
+
+ggsave(here::here("Figures/nca_dose_proportionality.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+```{r}
+#| label: dose-prop-power-model
+#| eval: false
+
+# Power model: log(param) = alpha + beta * log(dose)
+dp_models <- dp_data |>
+  group_by(PPTESTCD) |>
+  summarise(
+    model = list(lm(log(PPORRES) ~ log(.data[[dose_col]]))),
+    .groups = "drop"
+  ) |>
+  mutate(
+    beta = map_dbl(model, ~ coef(.x)[2]),
+    beta_ci_lower = map_dbl(model, ~ confint(.x)[2, 1]),
+    beta_ci_upper = map_dbl(model, ~ confint(.x)[2, 2]),
+    dose_proportional = beta_ci_lower <= 1 & beta_ci_upper >= 1
+  )
+
+dp_models |>
+  select(PPTESTCD, beta, beta_ci_lower, beta_ci_upper, dose_proportional) |>
+  gt() |>
+  tab_header(title = "Dose Proportionality: Power Model Results") |>
+  fmt_number(columns = c(beta, beta_ci_lower, beta_ci_upper), decimals = 3) |>
+  cols_label(
+    PPTESTCD = "Parameter",
+    beta = "Beta (slope)",
+    beta_ci_lower = "95% CI Lower",
+    beta_ci_upper = "95% CI Upper",
+    dose_proportional = "Dose Proportional?"
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Conclusions
+
+**Study:** [STUDY_ID]
+
+**Key Findings:**
+
+- [FINDING_1]
+- [FINDING_2]
+- [FINDING_3]
+
+**NCA Summary:**
+
+- Mean terminal half-life: [T_HALF_SUMMARY]
+- Dose proportionality: [DP_CONCLUSION]
+- BLQ impact: [BLQ_CONCLUSION]

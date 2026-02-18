@@ -1,0 +1,390 @@
+---
+title: "PK Simulation Report: [COMPOUND_NAME]"
+author: "[ANALYST]"
+date: today
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show code"
+toc: true
+number-sections: true
+---
+
+# Setup
+
+```{r}
+#| label: setup
+#| eval: false
+
+library(rxode2)
+# library(mrgsolve)  # Alternative simulation engine
+library(tidyverse)
+library(ggplot2)
+
+set.seed([SEED_VALUE])
+
+# Momentum Metrix color palette
+mm_primary <- "#1B365D"
+mm_secondary <- "#4A90D9"
+mm_accent <- "#E8891C"
+
+mm_colors <- c(mm_primary, mm_secondary, mm_accent, "#2E7D32", "#C62828", "#6A1B9A")
+
+theme_mm <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(color = mm_primary, face = "bold"),
+    axis.title = element_text(color = mm_primary),
+    legend.position = "bottom"
+  )
+theme_set(theme_mm)
+```
+
+# Model Specification
+
+## Parameter Estimates
+
+```{r}
+#| label: model-params
+#| eval: false
+
+# Source: NONMEM Run [RUN_NUMBER]
+# Model: [MODEL_DESCRIPTION] (e.g., 2-CMT oral, first-order absorption)
+
+# Fixed effects (THETAs)
+theta <- c(
+  KA   = [THETA_KA],      # Absorption rate constant (1/h)
+  CL   = [THETA_CL],      # Clearance (L/h)
+  V2   = [THETA_V2],      # Central volume (L)
+  Q    = [THETA_Q],       # Inter-compartmental clearance (L/h)
+  V3   = [THETA_V3]       # Peripheral volume (L)
+)
+
+# Inter-individual variability (OMEGAs, variance scale)
+omega <- lotri::lotri({
+  eta.KA ~ [OMEGA_KA]
+  eta.CL ~ [OMEGA_CL]
+  eta.V2 ~ [OMEGA_V2]
+  eta.Q  ~ [OMEGA_Q]
+  eta.V3 ~ [OMEGA_V3]
+})
+
+# Residual variability (SIGMAs)
+sigma <- lotri::lotri({
+  prop.err ~ [SIGMA_PROP]   # Proportional error variance
+  add.err  ~ [SIGMA_ADD]    # Additive error variance
+})
+```
+
+## ODE Model Definition (rxode2)
+
+```{r}
+#| label: rxode2-model
+#| eval: false
+
+mod <- rxode2({
+  # Individual parameters
+  KA_i  <- KA * exp(eta.KA)
+  CL_i  <- CL * exp(eta.CL)
+  V2_i  <- V2 * exp(eta.V2)
+  Q_i   <- Q  * exp(eta.Q)
+  V3_i  <- V3 * exp(eta.V3)
+
+  # Derived
+  K20 <- CL_i / V2_i
+  K23 <- Q_i / V2_i
+  K32 <- Q_i / V3_i
+
+  # ODEs
+  d/dt(depot)  = -KA_i * depot
+  d/dt(centr)  =  KA_i * depot - K20 * centr - K23 * centr + K32 * periph
+  d/dt(periph) =  K23 * centr - K32 * periph
+
+  # Concentration
+  cp = centr / V2_i
+
+  # Residual error
+  cp_obs = cp * (1 + prop.err) + add.err
+})
+```
+
+## Alternative: mrgsolve Model Definition
+
+```{r}
+#| label: mrgsolve-model
+#| eval: false
+
+# Uncomment to use mrgsolve instead of rxode2
+
+# mod_code <- '
+# $PARAM KA = [THETA_KA], CL = [THETA_CL], V2 = [THETA_V2],
+#        Q = [THETA_Q], V3 = [THETA_V3]
+#
+# $CMT DEPOT CENTR PERIPH
+#
+# $OMEGA [OMEGA_KA] [OMEGA_CL] [OMEGA_V2] [OMEGA_Q] [OMEGA_V3]
+#
+# $SIGMA [SIGMA_PROP] [SIGMA_ADD]
+#
+# $ODE
+# dxdt_DEPOT  = -KA * DEPOT;
+# dxdt_CENTR  =  KA * DEPOT - (CL/V2) * CENTR - (Q/V2) * CENTR + (Q/V3) * PERIPH;
+# dxdt_PERIPH =  (Q/V2) * CENTR - (Q/V3) * PERIPH;
+#
+# $TABLE
+# double CP = CENTR / V2;
+# double CP_OBS = CP * (1 + EPS(1)) + EPS(2);
+# '
+#
+# mod <- mcode("pk_model", mod_code)
+```
+
+# Dose Scenarios
+
+```{r}
+#| label: dose-scenarios
+#| eval: false
+
+n_subjects <- [N_SUBJECTS]   # Number of subjects per scenario
+sim_duration <- [SIM_HOURS]   # Total simulation time (hours)
+
+scenarios <- tribble(
+  ~scenario_name,        ~dose_mg,  ~interval_h,  ~n_doses,  ~route,
+  "[SCENARIO_1_NAME]",   [DOSE_1],  [INTERVAL_1],  [N_DOSE_1], "[ROUTE]",
+  "[SCENARIO_2_NAME]",   [DOSE_2],  [INTERVAL_2],  [N_DOSE_2], "[ROUTE]",
+  "[SCENARIO_3_NAME]",   [DOSE_3],  [INTERVAL_3],  [N_DOSE_3], "[ROUTE]",
+)
+
+scenarios |>
+  gt() |>
+  tab_header(title = "Simulation Dose Scenarios") |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Simulation Execution
+
+```{r}
+#| label: run-simulation
+#| eval: false
+
+sim_results <- map_dfr(seq_len(nrow(scenarios)), function(i) {
+  sc <- scenarios[i, ]
+
+  # Build event table
+  ev <- et() |>
+    et(amt = sc$dose_mg, ii = sc$interval_h, addl = sc$n_doses - 1) |>
+    et(seq(0, sim_duration, by = 0.5))  # Observation times
+
+  # Run simulation
+  sim <- rxSolve(mod,
+                 params = theta,
+                 events = ev,
+                 omega = omega,
+                 sigma = sigma,
+                 nSub = n_subjects,
+                 returnType = "data.frame")
+
+  sim$scenario <- sc$scenario_name
+  sim$dose_label <- paste0(sc$dose_mg, " mg q", sc$interval_h, "h")
+  sim
+})
+```
+
+# Results
+
+## Spaghetti Plots
+
+```{r}
+#| label: fig-spaghetti
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(sim_results, aes(x = time, y = cp, group = sim.id)) +
+  geom_line(alpha = 0.1, color = mm_secondary) +
+  facet_wrap(~ dose_label, ncol = 1) +
+  labs(
+    x = "Time (hours)",
+    y = "Concentration ([CONC_UNIT])",
+    title = "Individual Simulated Concentration-Time Profiles"
+  ) +
+  coord_cartesian(ylim = c(0, NA))
+
+ggsave(here::here("Figures/sim_spaghetti.png"),
+       width = 6.5, height = 5 * nrow(scenarios) / 2, dpi = 300)
+```
+
+## Median and Prediction Intervals
+
+```{r}
+#| label: fig-median-pi
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+pi_data <- sim_results |>
+  group_by(scenario, dose_label, time) |>
+  summarise(
+    median = median(cp, na.rm = TRUE),
+    pi_5   = quantile(cp, 0.05, na.rm = TRUE),
+    pi_25  = quantile(cp, 0.25, na.rm = TRUE),
+    pi_75  = quantile(cp, 0.75, na.rm = TRUE),
+    pi_95  = quantile(cp, 0.95, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(pi_data, aes(x = time)) +
+  geom_ribbon(aes(ymin = pi_5, ymax = pi_95, fill = dose_label), alpha = 0.15) +
+  geom_ribbon(aes(ymin = pi_25, ymax = pi_75, fill = dose_label), alpha = 0.3) +
+  geom_line(aes(y = median, color = dose_label), linewidth = 1) +
+  scale_color_manual(values = mm_colors) +
+  scale_fill_manual(values = mm_colors) +
+  labs(
+    x = "Time (hours)",
+    y = "Concentration ([CONC_UNIT])",
+    color = "Dose Regimen",
+    fill = "Dose Regimen",
+    title = "Simulated PK Profiles: Median with 90% and 50% PI"
+  ) +
+  coord_cartesian(ylim = c(0, NA))
+
+ggsave(here::here("Figures/sim_median_pi.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Dose Comparison at Steady State
+
+```{r}
+#| label: fig-dose-comparison-ss
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+# Extract last dosing interval for steady-state comparison
+last_dose_time <- sim_duration - scenarios$interval_h[1]
+
+ss_data <- sim_results |>
+  filter(time >= last_dose_time) |>
+  mutate(time_after_dose = time - last_dose_time)
+
+ss_pi <- ss_data |>
+  group_by(scenario, dose_label, time_after_dose) |>
+  summarise(
+    median = median(cp, na.rm = TRUE),
+    pi_5   = quantile(cp, 0.05, na.rm = TRUE),
+    pi_95  = quantile(cp, 0.95, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(ss_pi, aes(x = time_after_dose)) +
+  geom_ribbon(aes(ymin = pi_5, ymax = pi_95, fill = dose_label), alpha = 0.2) +
+  geom_line(aes(y = median, color = dose_label), linewidth = 1.2) +
+  scale_color_manual(values = mm_colors) +
+  scale_fill_manual(values = mm_colors) +
+  labs(
+    x = "Time After Last Dose (hours)",
+    y = "Concentration ([CONC_UNIT])",
+    color = "Dose Regimen",
+    fill = "Dose Regimen",
+    title = "Steady-State Comparison: Median with 90% PI"
+  ) +
+  coord_cartesian(ylim = c(0, NA))
+
+ggsave(here::here("Figures/sim_ss_comparison.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## PK Parameter Summary by Scenario
+
+```{r}
+#| label: tbl-sim-pk-summary
+#| eval: false
+
+# Compute simulated PK metrics per subject
+sim_pk_metrics <- sim_results |>
+  group_by(scenario, dose_label, sim.id) |>
+  summarise(
+    Cmax = max(cp, na.rm = TRUE),
+    Tmax = time[which.max(cp)],
+    AUC_last = pracma::trapz(time, cp),
+    Ctrough = cp[which.max(time)],
+    .groups = "drop"
+  )
+
+sim_pk_summary <- sim_pk_metrics |>
+  group_by(scenario, dose_label) |>
+  summarise(
+    across(c(Cmax, Tmax, AUC_last, Ctrough),
+           list(
+             median = ~ median(.x, na.rm = TRUE),
+             pi5 = ~ quantile(.x, 0.05, na.rm = TRUE),
+             pi95 = ~ quantile(.x, 0.95, na.rm = TRUE)
+           )),
+    .groups = "drop"
+  )
+
+sim_pk_summary |>
+  gt() |>
+  tab_header(
+    title = "Simulated PK Parameters by Dose Scenario",
+    subtitle = "Median [5th - 95th Percentile]"
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Target Attainment (Optional)
+
+```{r}
+#| label: target-attainment
+#| eval: false
+
+# Define PK/PD targets
+target_conc <- [TARGET_CONCENTRATION]   # Target concentration ([CONC_UNIT])
+target_type <- "[TARGET_TYPE]"           # "trough", "cmax", "time_above"
+
+# Calculate target attainment
+ta_results <- sim_pk_metrics |>
+  mutate(
+    target_met = case_when(
+      target_type == "trough" ~ Ctrough >= target_conc,
+      target_type == "cmax"   ~ Cmax >= target_conc,
+      TRUE ~ NA
+    )
+  ) |>
+  group_by(scenario, dose_label) |>
+  summarise(
+    n = n(),
+    n_met = sum(target_met, na.rm = TRUE),
+    pct_met = round(100 * n_met / n, 1),
+    .groups = "drop"
+  )
+
+ta_results |>
+  gt() |>
+  tab_header(
+    title = "Target Attainment Summary",
+    subtitle = paste0("Target: ", target_type, " >= ", target_conc, " [CONC_UNIT]")
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Conclusions
+
+**Model Source:** NONMEM Run [RUN_NUMBER] - [MODEL_DESCRIPTION]
+
+**Simulation Design:**
+
+- N = [N_SUBJECTS] subjects per scenario
+- [N_SCENARIOS] dose scenarios evaluated
+- Simulation duration: [SIM_HOURS] hours
+
+**Key Findings:**
+
+- [FINDING_1]
+- [FINDING_2]
+- [FINDING_3]
+
+**Dosing Recommendations:**
+
+- [RECOMMENDATION_1]
+- [RECOMMENDATION_2]

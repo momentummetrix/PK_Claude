@@ -1,0 +1,537 @@
+---
+title: "Exploratory Data Analysis Report: [COMPOUND_NAME]"
+author: "[ANALYST]"
+date: today
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show code"
+toc: true
+number-sections: true
+---
+
+# Setup
+
+```{r}
+#| label: setup
+#| eval: false
+
+library(tidyverse)
+library(ggplot2)
+library(gt)
+library(GGally)
+library(patchwork)
+
+# Momentum Metrix color palette
+mm_primary <- "#1B365D"
+mm_secondary <- "#4A90D9"
+mm_accent <- "#E8891C"
+
+mm_colors <- c(mm_primary, mm_secondary, mm_accent, "#2E7D32", "#C62828", "#6A1B9A")
+
+theme_mm <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(color = mm_primary, face = "bold"),
+    axis.title = element_text(color = mm_primary),
+    legend.position = "bottom"
+  )
+theme_set(theme_mm)
+```
+
+# Data Loading
+
+```{r}
+#| label: load-data
+#| eval: false
+
+pk_data <- read_csv(here::here("[DATASET_PATH]"))
+
+glimpse(pk_data)
+
+# Key column mapping
+id_col    <- "[SUBJECT_ID]"
+time_col  <- "[TIME_COL]"
+conc_col  <- "[DV_COL]"
+dose_col  <- "[DOSE_COL]"
+group_col <- "[DOSE_GROUP_COL]"
+
+# Demographic/covariate columns
+cont_covs <- c("[AGE_COL]", "[WEIGHT_COL]", "[HEIGHT_COL]", "[BMI_COL]",
+               "[EGFR_COL]", "[ALB_COL]", "[ALT_COL]", "[AST_COL]")
+cat_covs  <- c("[SEX_COL]", "[RACE_COL]", "[ETHNICITY_COL]",
+               "[RENAL_COL]", "[HEPATIC_COL]")
+
+# Dataset dimensions
+n_subjects <- pk_data |> distinct(.data[[id_col]]) |> nrow()
+n_obs <- nrow(pk_data)
+cat("Subjects:", n_subjects, "\nTotal observations:", n_obs, "\n")
+```
+
+# Demographics Summary
+
+```{r}
+#| label: tbl-demographics
+#| eval: false
+
+demo_data <- pk_data |>
+  distinct(.data[[id_col]], .keep_all = TRUE)
+
+# Continuous covariates summary
+cont_summary <- map_dfr(cont_covs, function(v) {
+  if (!v %in% names(demo_data)) return(NULL)
+  vals <- demo_data[[v]]
+  tibble(
+    Covariate = v,
+    N = sum(!is.na(vals)),
+    N_missing = sum(is.na(vals)),
+    Mean = round(mean(vals, na.rm = TRUE), 2),
+    SD = round(sd(vals, na.rm = TRUE), 2),
+    Median = round(median(vals, na.rm = TRUE), 2),
+    Min = round(min(vals, na.rm = TRUE), 2),
+    Max = round(max(vals, na.rm = TRUE), 2)
+  )
+})
+
+cont_summary |>
+  gt() |>
+  tab_header(
+    title = "Continuous Covariate Summary",
+    subtitle = paste0("N = ", n_subjects, " subjects")
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+```{r}
+#| label: tbl-categorical
+#| eval: false
+
+# Categorical covariates summary
+cat_summary <- map_dfr(cat_covs, function(v) {
+  if (!v %in% names(demo_data)) return(NULL)
+  tab <- table(demo_data[[v]], useNA = "ifany")
+  tibble(
+    Covariate = v,
+    Category = names(tab),
+    N = as.integer(tab),
+    Percent = round(100 * as.integer(tab) / nrow(demo_data), 1)
+  )
+})
+
+cat_summary |>
+  gt(groupname_col = "Covariate") |>
+  tab_header(
+    title = "Categorical Covariate Summary",
+    subtitle = paste0("N = ", n_subjects, " subjects")
+  ) |>
+  tab_options(
+    heading.background.color = mm_primary,
+    row_group.background.color = mm_secondary
+  )
+```
+
+# PK Concentration Summary
+
+## By Dose Group
+
+```{r}
+#| label: tbl-pk-by-dose
+#| eval: false
+
+pk_dose_summary <- pk_data |>
+  filter(!is.na(.data[[conc_col]])) |>
+  group_by(.data[[group_col]]) |>
+  summarise(
+    N_subjects = n_distinct(.data[[id_col]]),
+    N_obs = n(),
+    Mean_conc = round(mean(.data[[conc_col]], na.rm = TRUE), 3),
+    SD_conc = round(sd(.data[[conc_col]], na.rm = TRUE), 3),
+    Median_conc = round(median(.data[[conc_col]], na.rm = TRUE), 3),
+    Min_conc = round(min(.data[[conc_col]], na.rm = TRUE), 3),
+    Max_conc = round(max(.data[[conc_col]], na.rm = TRUE), 3),
+    .groups = "drop"
+  )
+
+pk_dose_summary |>
+  gt() |>
+  tab_header(title = "PK Concentration Summary by Dose Group") |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+## Concentration-Time Profile Overview
+
+```{r}
+#| label: fig-conc-overview
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 8
+
+p_linear <- ggplot(pk_data |> filter(!is.na(.data[[conc_col]])),
+                   aes(x = .data[[time_col]], y = .data[[conc_col]],
+                       group = .data[[id_col]],
+                       color = factor(.data[[group_col]]))) +
+  geom_line(alpha = 0.3) +
+  geom_point(size = 0.5, alpha = 0.4) +
+  stat_summary(aes(group = factor(.data[[group_col]])),
+               fun = median, geom = "line", linewidth = 1.2) +
+  scale_color_manual(values = mm_colors) +
+  labs(x = "Time ([TIME_UNIT])", y = "Concentration ([CONC_UNIT])",
+       color = "Dose", title = "Linear Scale")
+
+p_log <- p_linear %+%
+  (pk_data |> filter(.data[[conc_col]] > 0)) +
+  scale_y_log10() +
+  labs(title = "Semi-Log Scale")
+
+p_linear / p_log +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+ggsave(here::here("Figures/eda_conc_time_overview.png"),
+       width = 6.5, height = 8, dpi = 300)
+```
+
+# Covariate Distributions
+
+```{r}
+#| label: fig-cont-distributions
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 8
+
+# Histograms for continuous covariates
+cont_long <- demo_data |>
+  select(all_of(c(id_col, cont_covs[cont_covs %in% names(demo_data)]))) |>
+  pivot_longer(-all_of(id_col), names_to = "covariate", values_to = "value")
+
+ggplot(cont_long, aes(x = value)) +
+  geom_histogram(fill = mm_secondary, color = "white", bins = 20, alpha = 0.8) +
+  geom_vline(data = cont_long |> group_by(covariate) |>
+               summarise(med = median(value, na.rm = TRUE), .groups = "drop"),
+             aes(xintercept = med), color = mm_accent, linetype = "dashed",
+             linewidth = 1) +
+  facet_wrap(~ covariate, scales = "free", ncol = 2) +
+  labs(
+    x = "Value",
+    y = "Count",
+    title = "Continuous Covariate Distributions",
+    subtitle = "Dashed line = median"
+  )
+
+ggsave(here::here("Figures/eda_cont_distributions.png"),
+       width = 6.5, height = 8, dpi = 300)
+```
+
+```{r}
+#| label: fig-cat-distributions
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 6
+
+# Bar plots for categorical covariates
+cat_long <- demo_data |>
+  select(all_of(c(id_col, cat_covs[cat_covs %in% names(demo_data)]))) |>
+  pivot_longer(-all_of(id_col), names_to = "covariate", values_to = "value") |>
+  mutate(value = as.character(value))
+
+ggplot(cat_long, aes(x = value, fill = value)) +
+  geom_bar(alpha = 0.8) +
+  facet_wrap(~ covariate, scales = "free", ncol = 2) +
+  scale_fill_manual(values = mm_colors) +
+  labs(x = "", y = "Count", title = "Categorical Covariate Distributions") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = "none")
+
+ggsave(here::here("Figures/eda_cat_distributions.png"),
+       width = 6.5, height = 6, dpi = 300)
+```
+
+## Covariates by Dose Group
+
+```{r}
+#| label: fig-covs-by-dose
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 6
+
+# Boxplots of continuous covariates by dose group
+cont_by_dose <- pk_data |>
+  distinct(.data[[id_col]], .keep_all = TRUE) |>
+  select(all_of(c(id_col, group_col, cont_covs[cont_covs %in% names(pk_data)]))) |>
+  pivot_longer(-all_of(c(id_col, group_col)),
+               names_to = "covariate", values_to = "value")
+
+ggplot(cont_by_dose, aes(x = factor(.data[[group_col]]), y = value,
+                         fill = factor(.data[[group_col]]))) +
+  geom_boxplot(alpha = 0.7, outlier.shape = 21) +
+  facet_wrap(~ covariate, scales = "free_y", ncol = 2) +
+  scale_fill_manual(values = mm_colors) +
+  labs(x = "Dose Group", y = "Value", fill = "Dose",
+       title = "Continuous Covariates by Dose Group")
+
+ggsave(here::here("Figures/eda_covs_by_dose.png"),
+       width = 6.5, height = 6, dpi = 300)
+```
+
+# Correlation Matrix
+
+```{r}
+#| label: fig-correlation
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 6.5
+
+# Pairs plot for continuous covariates
+demo_cont <- demo_data |>
+  select(all_of(cont_covs[cont_covs %in% names(demo_data)])) |>
+  drop_na()
+
+ggpairs(
+  demo_cont,
+  upper = list(continuous = wrap("cor", size = 3, color = mm_primary)),
+  lower = list(continuous = wrap("points", alpha = 0.4, color = mm_secondary, size = 0.8)),
+  diag = list(continuous = wrap("densityDiag", fill = mm_secondary, alpha = 0.5)),
+  title = "Covariate Correlation Matrix"
+) +
+  theme_mm
+
+ggsave(here::here("Figures/eda_correlation_matrix.png"),
+       width = 6.5, height = 6.5, dpi = 300)
+```
+
+# Missing Data Assessment
+
+```{r}
+#| label: tbl-missing
+#| eval: false
+
+all_covs <- c(cont_covs, cat_covs)
+all_covs <- all_covs[all_covs %in% names(pk_data)]
+
+missing_summary <- map_dfr(all_covs, function(v) {
+  tibble(
+    Variable = v,
+    N_total = nrow(pk_data),
+    N_missing = sum(is.na(pk_data[[v]])),
+    Pct_missing = round(100 * N_missing / N_total, 2)
+  )
+}) |>
+  arrange(desc(Pct_missing))
+
+missing_summary |>
+  gt() |>
+  tab_header(
+    title = "Missing Data Summary",
+    subtitle = "All covariates"
+  ) |>
+  data_color(
+    columns = Pct_missing,
+    fn = scales::col_numeric(
+      palette = c("white", mm_accent, "#C62828"),
+      domain = c(0, max(missing_summary$Pct_missing, 10))
+    )
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+```{r}
+#| label: fig-missing-pattern
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+# Missing data pattern visualization
+missing_matrix <- pk_data |>
+  distinct(.data[[id_col]], .keep_all = TRUE) |>
+  select(all_of(all_covs)) |>
+  mutate(across(everything(), ~ as.integer(is.na(.x)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "is_missing")
+
+ggplot(missing_matrix, aes(x = variable, fill = factor(is_missing))) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("0" = mm_secondary, "1" = "#C62828"),
+                    labels = c("Present", "Missing")) +
+  labs(
+    x = "", y = "Proportion", fill = "",
+    title = "Missing Data Pattern by Variable"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent)
+
+ggsave(here::here("Figures/eda_missing_pattern.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+# Outlier Detection
+
+```{r}
+#| label: outlier-detection
+#| eval: false
+
+# Concentration outlier detection (Tukey's method)
+outlier_results <- pk_data |>
+  filter(!is.na(.data[[conc_col]])) |>
+  group_by(.data[[group_col]]) |>
+  mutate(
+    q1 = quantile(.data[[conc_col]], 0.25, na.rm = TRUE),
+    q3 = quantile(.data[[conc_col]], 0.75, na.rm = TRUE),
+    iqr = q3 - q1,
+    lower_fence = q1 - 1.5 * iqr,
+    upper_fence = q3 + 1.5 * iqr,
+    is_outlier = .data[[conc_col]] < lower_fence | .data[[conc_col]] > upper_fence
+  ) |>
+  ungroup()
+
+outlier_summary <- outlier_results |>
+  group_by(.data[[group_col]]) |>
+  summarise(
+    N_obs = n(),
+    N_outliers = sum(is_outlier),
+    Pct_outliers = round(100 * N_outliers / N_obs, 2),
+    .groups = "drop"
+  )
+
+outlier_summary |>
+  gt() |>
+  tab_header(
+    title = "Concentration Outlier Summary (Tukey's Method)",
+    subtitle = "1.5 x IQR criterion"
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+```{r}
+#| label: fig-outlier-boxplot
+#| eval: false
+#| fig-width: 6.5
+#| fig-height: 5
+
+ggplot(outlier_results,
+       aes(x = factor(.data[[group_col]]), y = .data[[conc_col]],
+           fill = factor(.data[[group_col]]))) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  geom_jitter(data = outlier_results |> filter(is_outlier),
+              color = "#C62828", size = 2, alpha = 0.7, width = 0.2) +
+  scale_fill_manual(values = mm_colors) +
+  labs(
+    x = "Dose Group",
+    y = "Concentration ([CONC_UNIT])",
+    title = "Concentration Distribution with Outliers Highlighted"
+  ) +
+  guides(fill = "none")
+
+ggsave(here::here("Figures/eda_outlier_boxplot.png"),
+       width = 6.5, height = 5, dpi = 300)
+```
+
+## Covariate Outliers
+
+```{r}
+#| label: tbl-cov-outliers
+#| eval: false
+
+cov_outliers <- map_dfr(cont_covs[cont_covs %in% names(demo_data)], function(v) {
+  vals <- demo_data[[v]]
+  q1 <- quantile(vals, 0.25, na.rm = TRUE)
+  q3 <- quantile(vals, 0.75, na.rm = TRUE)
+  iqr_val <- q3 - q1
+
+  tibble(
+    Covariate = v,
+    N = sum(!is.na(vals)),
+    Lower_fence = round(q1 - 1.5 * iqr_val, 2),
+    Upper_fence = round(q3 + 1.5 * iqr_val, 2),
+    N_below = sum(vals < q1 - 1.5 * iqr_val, na.rm = TRUE),
+    N_above = sum(vals > q3 + 1.5 * iqr_val, na.rm = TRUE),
+    Pct_outlier = round(100 * (N_below + N_above) / N, 2)
+  )
+})
+
+cov_outliers |>
+  gt() |>
+  tab_header(title = "Covariate Outlier Assessment (Tukey's Method)") |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Data Quality Flags
+
+```{r}
+#| label: data-quality
+#| eval: false
+
+quality_flags <- pk_data |>
+  mutate(
+    flag_negative_conc = .data[[conc_col]] < 0,
+    flag_negative_time = .data[[time_col]] < 0,
+    flag_zero_dose = .data[[dose_col]] == 0 & !is.na(.data[[dose_col]]),
+    flag_duplicate = duplicated(
+      select(pk_data, all_of(c(id_col, time_col, conc_col)))
+    ),
+    flag_missing_conc = is.na(.data[[conc_col]]),
+    flag_missing_time = is.na(.data[[time_col]])
+  )
+
+flag_summary <- tibble(
+  Flag = c("Negative concentrations", "Negative times",
+           "Zero dose records", "Duplicate records",
+           "Missing concentrations", "Missing times"),
+  N_records = c(
+    sum(quality_flags$flag_negative_conc, na.rm = TRUE),
+    sum(quality_flags$flag_negative_time, na.rm = TRUE),
+    sum(quality_flags$flag_zero_dose, na.rm = TRUE),
+    sum(quality_flags$flag_duplicate, na.rm = TRUE),
+    sum(quality_flags$flag_missing_conc, na.rm = TRUE),
+    sum(quality_flags$flag_missing_time, na.rm = TRUE)
+  )
+) |>
+  mutate(
+    Pct = round(100 * N_records / nrow(pk_data), 2),
+    Severity = case_when(
+      N_records == 0 ~ "OK",
+      Pct < 1 ~ "Low",
+      Pct < 5 ~ "Medium",
+      TRUE ~ "High"
+    )
+  )
+
+flag_summary |>
+  gt() |>
+  tab_header(
+    title = "Data Quality Flag Summary",
+    subtitle = paste0("N = ", nrow(pk_data), " records")
+  ) |>
+  data_color(
+    columns = Severity,
+    fn = function(x) case_when(
+      x == "OK" ~ "#2E7D32",
+      x == "Low" ~ mm_accent,
+      x == "Medium" ~ "#E65100",
+      x == "High" ~ "#C62828",
+      TRUE ~ "black"
+    )
+  ) |>
+  tab_options(heading.background.color = mm_primary)
+```
+
+# Conclusions
+
+**Dataset:** [DATASET_PATH]
+
+**Dataset Summary:**
+
+- Subjects: [N_SUBJECTS]
+- Total observations: [N_OBS]
+- Dose groups: [DOSE_GROUPS]
+
+**Key Observations:**
+
+- Demographics: [DEMO_SUMMARY]
+- Missing data: [MISSING_SUMMARY]
+- Outliers: [OUTLIER_SUMMARY]
+- Data quality: [QUALITY_SUMMARY]
+
+**Recommendations:**
+
+- [RECOMMENDATION_1]
+- [RECOMMENDATION_2]
+- [RECOMMENDATION_3]
