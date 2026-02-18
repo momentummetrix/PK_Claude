@@ -112,6 +112,17 @@ NONMEM auto-fail conditions: THETA initial estimate = 0, missing convergence, mi
 | `/generate-report <type> <run>` | PopPK reports |
 | `/dashboard <run>` | Interactive model dashboard |
 
+## R/Quarto Analysis Skills
+
+| Command | What It Does |
+|---------|-------------|
+| `/nca-analysis [dataset]` | NCA workflow (PKNCA/pkr) with Quarto report |
+| `/er-analysis [dataset]` | Exposure-response analysis with Quarto report |
+| `/simulate [engine]` | PK/PD simulation (rxode2 or mrgsolve) |
+| `/tfl-generator [type]` | Submission-ready Tables, Figures, Listings |
+| `/eda [dataset]` | Exploratory data analysis with Quarto report |
+| `/pk-diagram <type> <spec>` | Mermaid diagrams (compartment models, workflows, data flows) |
+
 ## Academic Skills Quick Reference
 
 | Command | What It Does |

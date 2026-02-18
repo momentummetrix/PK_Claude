@@ -2,7 +2,7 @@
 
 > **PK project template.** Fork this repo to get a ready-to-go PopPK/PD model development environment with Claude Code. Includes NONMEM conventions, model development tracking, specialized review agents, and automated quality gates. Built on the [academic Claude Code template](https://github.com/pedrohcgs/claude-code-my-workflow) by Pedro Sant'Anna.
 
-**Last Updated:** 2026-02-16
+**Last Updated:** 2026-02-17
 
 ---
 
@@ -70,7 +70,7 @@ NONMEM auto-fail conditions: THETA initial estimate = 0, missing convergence, mi
 ## What's Included
 
 <details>
-<summary><strong>11 agents, 31 skills, 20 rules, 7 hooks</strong> (click to expand)</summary>
+<summary><strong>11 agents, 37 skills, 22 rules, 7 hooks</strong> (click to expand)</summary>
 
 ### PK-Specific Skills
 
@@ -86,6 +86,17 @@ NONMEM auto-fail conditions: THETA initial estimate = 0, missing convergence, mi
 | `/model-template` | NONMEM control stream templates |
 | `/generate-report <type> <run>` | PopPK reports (update, executive, regulatory) |
 | `/dashboard <run>` | Interactive Quarto model dashboard |
+
+### R/Quarto Analysis Skills
+
+| Skill | What It Does |
+|-------|-------------|
+| `/nca-analysis [dataset]` | NCA workflow (PKNCA/pkr) → Quarto report |
+| `/er-analysis [dataset]` | Exposure-response analysis → Quarto report |
+| `/simulate [engine]` | PK/PD simulation (rxode2 or mrgsolve) |
+| `/tfl-generator [type]` | Submission-ready Tables, Figures, Listings |
+| `/eda [dataset]` | Exploratory data analysis → Quarto report |
+| `/pk-diagram <type> <spec>` | Mermaid diagrams for PK models, workflows, data flows |
 
 ### Academic Skills (inherited)
 
@@ -120,6 +131,18 @@ NONMEM auto-fail conditions: THETA initial estimate = 0, missing convergence, mi
 | `report-standards` | No hardcoding, GOF standards, table standards |
 | `quality-gates` | NONMEM scoring rubric (THETA=0 auto-fail, RSE thresholds) |
 | `knowledge-base-template` | PK conventions registry |
+| `context7-docs` | Auto-fetch live R package docs before writing PMX R code |
+| `pmx-r-patterns` | Mandatory R patterns: set.seed, here::here, dpi=300, no ggplotly |
+
+### MCP Plugin Integrations
+
+| Plugin | What It Provides |
+|--------|-----------------|
+| Context7 | Live documentation for 30+ R packages (auto-triggered by rules) |
+| Mermaid Chart | Rendered PK model diagrams, workflow charts, data flow diagrams |
+| ClinicalTrials.gov | Trial search, protocol design research, competitive intelligence |
+| bioRxiv/medRxiv | Preprint search for latest pharmacometrics research |
+| ChEMBL | Compound search, bioactivity data, target information |
 
 </details>
 
@@ -134,6 +157,9 @@ NONMEM auto-fail conditions: THETA initial estimate = 0, missing convergence, mi
 | R + packages | Diagnostics & reporting | [r-project.org](https://www.r-project.org/) |
 | xpose | NONMEM output parsing | `install.packages("xpose")` |
 | vpc | Visual predictive checks | `install.packages("vpc")` |
+| PKNCA | NCA analysis | `install.packages("PKNCA")` |
+| mrgsolve / rxode2 | PK simulations | `install.packages("mrgsolve")` |
+| gt / flextable | Formatted tables | `install.packages(c("gt", "flextable"))` |
 | aipharma | PK workflow automation | Internal package |
 | XeLaTeX | LaTeX compilation (optional) | [TeX Live](https://tug.org/texlive/) |
 | [Quarto](https://quarto.org) | Web slides/dashboards | [quarto.org](https://quarto.org/docs/get-started/) |
@@ -148,6 +174,8 @@ NONMEM auto-fail conditions: THETA initial estimate = 0, missing convergence, mi
 4. **Configure NONMEM path** — ensure `nmfe75` is on your PATH
 5. **Initialize model log** — `/model-log init`
 6. **Run data QC** — `/data-qc` on your dataset
+
+For the R/Quarto analysis skills (NCA, E-R, simulations, TFLs, EDA), see the [Plugin Integration Guide](docs/plugin-integration-guide.md).
 
 ---
 
